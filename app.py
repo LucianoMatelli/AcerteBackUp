@@ -16,6 +16,13 @@ import pandas as pd
 import requests
 import streamlit as st
 
+def _cfg_int(name: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        value = int(st.secrets.get(name, os.getenv(name, str(default))))
+    except Exception:
+        value = default
+    return max(min_value, min(max_value, value))
+
 # ==========================
 # Configuração de página
 # ==========================
@@ -50,9 +57,19 @@ BASE_API = ORIGIN + "/api/search"
 HEADERS = {
     "User-Agent": "AcerteLicitacoes/1.1 (+streamlit)",
     "Referer": "https://pncp.gov.br/app/editais",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "pt-BR,pt;q=0.9",
+    "Cache-Control": "no-cache",
+    "Connection": "close",
 }
-TAM_PAGINA_FIXO = 100  # coleta sempre com 100 por página
+TAM_PAGINA_FIXO = _cfg_int("PNCP_SEARCH_TAM_PAGINA", 50, 10, 100)
+PNCP_SEARCH_MAX_PAGINAS = _cfg_int("PNCP_SEARCH_MAX_PAGINAS", 20, 1, 100)
+PNCP_SEARCH_RETRIES = _cfg_int("PNCP_SEARCH_RETRIES", 3, 1, 5)
+PNCP_SEARCH_CONNECT_TIMEOUT = _cfg_int("PNCP_SEARCH_CONNECT_TIMEOUT", 5, 2, 15)
+PNCP_SEARCH_READ_TIMEOUT = _cfg_int("PNCP_SEARCH_READ_TIMEOUT", 20, 5, 60)
+PNCP_SEARCH_DELAY_MS = _cfg_int("PNCP_SEARCH_DELAY_MS", 250, 0, 3000)
+PNCP_SEARCH_RETRY_DELAY_MS = _cfg_int("PNCP_SEARCH_RETRY_DELAY_MS", 900, 200, 5000)
+PNCP_SEARCH_MUNICIPIO_DELAY_MS = _cfg_int("PNCP_SEARCH_MUNICIPIO_DELAY_MS", 350, 0, 5000)
 
 STATUS_LABELS = [
     "A Receber/Recebendo Proposta",
@@ -366,15 +383,39 @@ def _persist_marks(path: str, remote_name: str, d: Dict[str, bool]):
 # ==========================
 # Coleta PNCP (baseline funcional)
 # ==========================
+def _pncp_search_json(params: Dict[str, object]) -> dict:
+    last_error: Optional[Exception] = None
+    for attempt in range(PNCP_SEARCH_RETRIES):
+        try:
+            r = requests.get(
+                BASE_API,
+                params=params,
+                headers=HEADERS,
+                timeout=(PNCP_SEARCH_CONNECT_TIMEOUT, PNCP_SEARCH_READ_TIMEOUT),
+            )
+            body = (r.text or "").strip()
+            body_lower = body.lower()
+            if "request rejected" in body_lower or "support id" in body_lower:
+                raise RuntimeError("PNCP rejeitou temporariamente a requisição")
+            r.raise_for_status()
+            return r.json()
+        except Exception as exc:
+            last_error = exc
+            if attempt < PNCP_SEARCH_RETRIES - 1:
+                time.sleep((PNCP_SEARCH_RETRY_DELAY_MS / 1000) * (attempt + 1))
+                continue
+            raise RuntimeError(f"falha após {PNCP_SEARCH_RETRIES} tentativas: {last_error}") from exc
+
+
 def consultar_pncp_por_municipio(
     municipio_id: str,
     status_value: str = "recebendo_proposta",
     tam_pagina: int = TAM_PAGINA_FIXO,
-    delay_s: float = 0.05,
+    delay_s: float = PNCP_SEARCH_DELAY_MS / 1000,
 ) -> List[Dict]:
     out: List[Dict] = []
     pagina = 1
-    while True:
+    while pagina <= PNCP_SEARCH_MAX_PAGINAS:
         params = {
             "tipos_documento": "edital",
             "ordenacao": "-data",
@@ -385,9 +426,7 @@ def consultar_pncp_por_municipio(
         if status_value:
             params["status"] = status_value
 
-        r = requests.get(BASE_API, params=params, headers=HEADERS, timeout=30)
-        r.raise_for_status()
-        js = r.json()
+        js = _pncp_search_json(params)
         itens = _items_from_json(js)
 
         if not itens:
@@ -490,7 +529,7 @@ def coletar_por_assinatura(signature: dict) -> pd.DataFrame:
     erros: List[str] = []
     codigos = signature.get("municipios", [])
     status_value = signature.get("status", "")
-    for codigo in codigos:
+    for idx, codigo in enumerate(codigos):
         try:
             itens = consultar_pncp_por_municipio(
                 codigo, status_value=status_value, tam_pagina=TAM_PAGINA_FIXO
@@ -500,6 +539,8 @@ def coletar_por_assinatura(signature: dict) -> pd.DataFrame:
             erros.append(f"Município código {codigo}: {exc}")
         for it in itens:
             registros.append(montar_registro(it, codigo))
+        if idx < len(codigos) - 1 and PNCP_SEARCH_MUNICIPIO_DELAY_MS > 0:
+            time.sleep(PNCP_SEARCH_MUNICIPIO_DELAY_MS / 1000)
 
     st.session_state.result_errors = erros
 
