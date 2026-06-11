@@ -38,9 +38,12 @@ CSV_IBGE_PATHS = [
     os.path.join(DATA_DIR, "IBGE_Municipios.csv"),
     "IBGE_Municipios.csv",
 ]
-SAVED_SEARCHES_PATH = os.path.join(BASE_DIR, "saved_searches.json")
-SAVED_TR_PATH = os.path.join(BASE_DIR, "tr_marks.json")
-SAVED_NA_PATH = os.path.join(BASE_DIR, "na_marks.json")
+SAVED_SEARCHES_PATH = os.path.join(DATA_DIR, "saved_searches.json")
+SAVED_TR_PATH = os.path.join(DATA_DIR, "tr_marks.json")
+SAVED_NA_PATH = os.path.join(DATA_DIR, "na_marks.json")
+DEFAULT_GITHUB_REPO = "LucianoMatelli/AcerteBackUp"
+DEFAULT_GITHUB_BRANCH = "main"
+DEFAULT_GITHUB_BASEDIR = "data"
 
 ORIGIN = "https://pncp.gov.br"
 BASE_API = ORIGIN + "/api/search"
@@ -137,26 +140,48 @@ def _uid_from_row(row: Dict) -> str:
     base = f"{row.get('Título','')}-{row.get('municipio_codigo','')}-{row.get('_pub_raw','')}-{row.get('Orgão','')}"
     return hashlib.md5(base.encode("utf-8")).hexdigest()
 
+def _secret(name: str, default: str = "") -> str:
+    try:
+        value = st.secrets.get(name, default)
+    except Exception:
+        value = os.getenv(name, default)
+    return str(value or "").strip()
+
+def _write_json_local(path: str, payload: dict) -> None:
+    parent = os.path.dirname(path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
 # ==========================
 # Persistência via GitHub Contents API
 # ==========================
 def _gh_headers() -> Dict[str, str]:
-    tok = st.secrets.get("GITHUB_TOKEN")
-    return {
-        "Authorization": f"token {tok}",
+    tok = _secret("GITHUB_TOKEN")
+    headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "AcerteLicitacoes/PNCP",
     }
+    if tok:
+        headers["Authorization"] = f"token {tok}"
+    return headers
 
 def _gh_cfg_ok() -> bool:
-    return bool(st.secrets.get("GITHUB_TOKEN") and st.secrets.get("GITHUB_REPO"))
+    return bool(_secret("GITHUB_TOKEN") and _gh_repo())
+
+def _gh_repo() -> str:
+    repo = _secret("GITHUB_REPO", DEFAULT_GITHUB_REPO)
+    if repo.lower().rstrip("/") == "lucianomatelli/acertelicitacao":
+        return DEFAULT_GITHUB_REPO
+    return repo
 
 def _gh_paths(filename: str) -> Tuple[str, str, str]:
-    repo   = st.secrets["GITHUB_REPO"]
-    branch = st.secrets.get("GITHUB_BRANCH", "main")
-    based  = st.secrets.get("GITHUB_BASEDIR", "data")
-    path   = f"{based.rstrip('/')}/{filename}"
+    repo   = _gh_repo()
+    branch = _secret("GITHUB_BRANCH", DEFAULT_GITHUB_BRANCH)
+    based  = _secret("GITHUB_BASEDIR", DEFAULT_GITHUB_BASEDIR).strip("/")
+    path   = f"{based}/{filename}" if based else filename
     return repo, branch, path
 
 def _gh_get_json(filename: str) -> Tuple[Optional[dict], Optional[str]]:
@@ -192,8 +217,8 @@ def _gh_put_json(filename: str, payload: dict, sha: Optional[str]) -> None:
         "content": content_b64,
         "branch": branch,
         "committer": {
-            "name": st.secrets.get("GITHUB_COMMITTER_NAME", "PNCP Bot"),
-            "email": st.secrets.get("GITHUB_COMMITTER_EMAIL", "bot@acertelicitacoes.local"),
+            "name": _secret("GITHUB_COMMITTER_NAME", "Acerte Licitações Bot BU"),
+            "email": _secret("GITHUB_COMMITTER_EMAIL", "bot2@acertelicitacoes.local"),
         },
     }
     if sha:
@@ -282,15 +307,25 @@ def _load_saved_searches() -> Dict[str, Dict]:
         return {}
 
 def _persist_saved_searches(d: Dict[str, Dict]):
+    last_error = None
+    for attempt in range(2):
+        try:
+            _, sha = _gh_get_json("saved_searches.json")
+            _gh_put_json("saved_searches.json", d, sha)
+            return
+        except requests.HTTPError as e:
+            last_error = e
+            if getattr(e.response, "status_code", None) == 409 and attempt == 0:
+                time.sleep(0.5)
+                continue
+            break
+        except Exception as e:
+            last_error = e
+            break
+    if last_error:
+        st.warning(f"Não consegui salvar no GitHub (usando fallback local): {last_error}")
     try:
-        _, sha = _gh_get_json("saved_searches.json")
-        _gh_put_json("saved_searches.json", d, sha)
-        return
-    except Exception as e:
-        st.warning(f"Não consegui salvar no GitHub (usando fallback local): {e}")
-    try:
-        with open(SAVED_SEARCHES_PATH, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False, indent=2)
+        _write_json_local(SAVED_SEARCHES_PATH, d)
     except Exception as e:
         st.error(f"Falha ao salvar pesquisas localmente: {e}")
 
@@ -306,15 +341,25 @@ def _load_marks(path: str, remote_name: str) -> Dict[str, bool]:
         return {}
 
 def _persist_marks(path: str, remote_name: str, d: Dict[str, bool]):
+    last_error = None
+    for attempt in range(2):
+        try:
+            _, sha = _gh_get_json(remote_name)
+            _gh_put_json(remote_name, d, sha)
+            return
+        except requests.HTTPError as e:
+            last_error = e
+            if getattr(e.response, "status_code", None) == 409 and attempt == 0:
+                time.sleep(0.5)
+                continue
+            break
+        except Exception as e:
+            last_error = e
+            break
+    if last_error:
+        st.warning(f"Não consegui salvar no GitHub (usando fallback local): {last_error}")
     try:
-        _, sha = _gh_get_json(remote_name)
-        _gh_put_json(remote_name, d, sha)
-        return
-    except Exception as e:
-        st.warning(f"Não consegui salvar no GitHub (usando fallback local): {e}")
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False, indent=2)
+        _write_json_local(path, d)
     except Exception as e:
         st.error(f"Falha ao salvar marcações localmente: {e}")
 
@@ -429,18 +474,20 @@ def _ensure_session_state():
         st.session_state.results_df = None  # list[dict]
     if "results_signature" not in st.session_state:
         st.session_state.results_signature = None
+    if "result_errors" not in st.session_state:
+        st.session_state.result_errors = []
     if "tr_marks" not in st.session_state:
         st.session_state.tr_marks = _load_marks(SAVED_TR_PATH, "tr_marks.json")
     if "na_marks" not in st.session_state:
         st.session_state.na_marks = _load_marks(SAVED_NA_PATH, "na_marks.json")
 
 # ==========================
-# Coleta agregada (CACHE)
+# Coleta agregada sem cache de resultado PNCP
 # ==========================
-@st.cache_data(ttl=900, show_spinner=False)
 def coletar_por_assinatura(signature: dict) -> pd.DataFrame:
     """Coleção consolidada por assinatura de filtros (municípios, status, q)."""
     registros: List[Dict] = []
+    erros: List[str] = []
     codigos = signature.get("municipios", [])
     status_value = signature.get("status", "")
     for codigo in codigos:
@@ -448,10 +495,13 @@ def coletar_por_assinatura(signature: dict) -> pd.DataFrame:
             itens = consultar_pncp_por_municipio(
                 codigo, status_value=status_value, tam_pagina=TAM_PAGINA_FIXO
             )
-        except Exception:
+        except Exception as exc:
             itens = []
+            erros.append(f"Município código {codigo}: {exc}")
         for it in itens:
             registros.append(montar_registro(it, codigo))
+
+    st.session_state.result_errors = erros
 
     df = pd.DataFrame(registros)
 
@@ -782,6 +832,7 @@ def main():
         if not signature["municipios"]:
             st.warning("Selecione pelo menos um município para pesquisar.")
             st.stop()
+        st.session_state.result_errors = []
         with st.spinner("Coletando dados no PNCP..."):
             df = coletar_por_assinatura(signature)
         st.session_state.results_df = df.to_dict("records")
@@ -795,6 +846,11 @@ def main():
 
         if st.session_state.results_signature and signature != st.session_state.results_signature:
             st.warning("Filtros alterados após a última coleta. Clique em **Pesquisar** para atualizar os resultados.")
+
+    if st.session_state.get("result_errors"):
+        with st.expander("Avisos da coleta"):
+            for err in st.session_state.result_errors:
+                st.warning(err)
 
     # ===== Renderização =====
     st.subheader(f"Resultados ({len(df)})")
@@ -837,17 +893,18 @@ def main():
     page_df = df.iloc[start:end].copy()
 
     # ====== CARDS ======
-    for _, row in page_df.iterrows():
+    for pos, (_, row) in enumerate(page_df.iterrows(), start=start):
         uid = _uid_from_row(row)
+        widget_uid = f"{uid}_{pos}"
         tr_flag = bool(st.session_state.tr_marks.get(uid, False))
         na_flag = bool(st.session_state.na_marks.get(uid, False))
 
         # checkboxes lado a lado, acima do card (à direita)
         col_spacer, col_cb_tr, col_cb_na = st.columns([6, 1.3, 1.3])
         with col_cb_tr:
-            new_tr = st.checkbox("TR Elaborado", value=tr_flag, key=f"tr_{uid}")
+            new_tr = st.checkbox("TR Elaborado", value=tr_flag, key=f"tr_{widget_uid}")
         with col_cb_na:
-            new_na = st.checkbox("Não Atende", value=na_flag, key=f"na_{uid}")
+            new_na = st.checkbox("Não Atende", value=na_flag, key=f"na_{widget_uid}")
 
         updated = False
         if new_tr != tr_flag:
