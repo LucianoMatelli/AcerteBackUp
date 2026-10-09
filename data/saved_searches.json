@@ -8,7 +8,9 @@
         "codigo_pncp": "3523",
         "nome": "Itapetininga",
         "uf": ""
-      },
+        }
+    ]
+  },
   "Papelaria": {
     "palavra_chave": "Escritório",
     "status_label": "A Receber/Recebendo Proposta",
