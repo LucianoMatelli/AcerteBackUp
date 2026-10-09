@@ -5,19 +5,94 @@
     "uf": "SP",
     "municipios": [
       {
-        "codigo_pncp": "3721",
+        "nome": "Itapetininga",
+        "uf": "SP",
+        "codigo_ibge": "3522307"
+      },
+      {
+        "nome": "Buri",
+        "uf": "SP",
+        "codigo_ibge": "3508009"
+      },
+      {
         "nome": "Porto Feliz",
-        "uf": ""
+        "uf": "SP",
+        "codigo_ibge": "3540606"
       },
       {
-        "codigo_pncp": "3375",
+        "nome": "Conchas",
+        "uf": "SP",
+        "codigo_ibge": "3512308"
+      },
+      {
+        "nome": "Torre de Pedra",
+        "uf": "SP",
+        "codigo_ibge": "3554656"
+      },
+      {
+        "nome": "Porangaba",
+        "uf": "SP",
+        "codigo_ibge": "3540507"
+      },
+      {
+        "nome": "Guareí",
+        "uf": "SP",
+        "codigo_ibge": "3518503"
+      },
+      {
+        "nome": "Quadra",
+        "uf": "SP",
+        "codigo_ibge": "3541653"
+      },
+      {
+        "nome": "Angatuba",
+        "uf": "SP",
+        "codigo_ibge": "3502200"
+      },
+      {
+        "nome": "Capão Bonito",
+        "uf": "SP",
+        "codigo_ibge": "3510203"
+      },
+      {
         "nome": "Campina do Monte Alegre",
-        "uf": ""
+        "uf": "SP",
+        "codigo_ibge": "3509452"
       },
       {
-        "codigo_pncp": "3673",
+        "nome": "Pilar do Sul",
+        "uf": "SP",
+        "codigo_ibge": "3537909"
+      },
+      {
+        "nome": "Sarapuí",
+        "uf": "SP",
+        "codigo_ibge": "3551108"
+      },
+      {
+        "nome": "Capela do Alto",
+        "uf": "SP",
+        "codigo_ibge": "3510302"
+      },
+      {
+        "nome": "São Miguel Arcanjo",
+        "uf": "SP",
+        "codigo_ibge": "3550209"
+      },
+      {
+        "nome": "Cesário Lange",
+        "uf": "SP",
+        "codigo_ibge": "3511607"
+      },
+      {
+        "nome": "Itararé",
+        "uf": "SP",
+        "codigo_ibge": "3523206"
+      },
+      {
         "nome": "Pardinho",
-        "uf": ""
+        "uf": "SP",
+        "codigo_ibge": "3536109"
       }
     ]
   },
